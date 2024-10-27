@@ -1,0 +1,46 @@
+const fs = require('fs');
+const csv = require('csv-parser');
+
+const files = ['file1.csv', 'file2.csv']; // Add your CSV file names here
+const results = [];
+const headersSet = new Set();
+
+function readCSV(file) {
+  return new Promise((resolve, reject) => {
+    const rows = [];
+    fs.createReadStream(file)
+      .pipe(csv())
+      .on('data', (data) => {
+        rows.push(data);
+        Object.keys(data).forEach(header => headersSet.add(header));
+      })
+      .on('end', () => resolve(rows))
+      .on('error', reject);
+  });
+}
+
+async function mergeCSVs() {
+  for (const file of files) {
+    const rows = await readCSV(file);
+    results.push(...rows);
+  }
+
+  const headers = Array.from(headersSet);
+  const mergedData = results.map(row => {
+    const mergedRow = {};
+    headers.forEach(header => {
+      mergedRow[header] = row[header] || '';
+    });
+    return mergedRow;
+  });
+
+  const output = [headers.join(',')];
+  mergedData.forEach(row => {
+    output.push(headers.map(header => row[header]).join(','));
+  });
+
+  fs.writeFileSync('merged.csv', output.join('\n'));
+  console.log('CSV files merged successfully!');
+}
+
+mergeCSVs().catch(console.error);
