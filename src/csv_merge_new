@@ -38,9 +38,11 @@ function concatCSVAndOutput(csvFilePaths, outputFilePath) {
                 result.forEach((data) => {
                     let isExist = false;
                     resultData = resultData.map((value)=>{  
-                        if(value.Resource_ID === data.Resource_ID &&
+                        if(value.Resource_ID === data.Resource_ID
+                             &&
                              value.Cost === data.Cost &&
-                             value.Start === data.Start){
+                             value.Start === data.Start
+                            ){
                                 missingCols.forEach((val)=>{
                                     value[val] = data[val];
                                 })
@@ -56,13 +58,15 @@ function concatCSVAndOutput(csvFilePaths, outputFilePath) {
                              }
                     })
                     if(!isExist){
+                        // console.log(missingCols2,"=============================", data.Resource_ID)
                         missingCols2.forEach((val)=>{
-                            result[val] = '';
+                            data[val] = '';
                         })
-                        finalData.push(result);
+                        finalData.push(data);
                     }
                   });
-                 resultData = resultData.concat(finalData);
+                //   console.log(finalData,"===================")
+                 resultData = [...resultData, ...finalData];
             }
           });
             resultData.forEach((data) => {
