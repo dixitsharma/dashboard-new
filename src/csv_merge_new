@@ -1,0 +1,79 @@
+const fs = require('fs');
+const csv = require('fast-csv');
+
+function concatCSVAndOutput(csvFilePaths, outputFilePath) {
+    const promises = csvFilePaths.map((path) => {
+      return new Promise((resolve) => {
+        const dataArray = [];
+        return csv
+            .parseFile(path, {headers: true})
+            .on('data', function(data) {
+              dataArray.push(data);
+            })
+            .on('end', function() {
+              resolve(dataArray);
+            });
+      });
+    });
+  
+    return Promise.all(promises)
+        .then((results) => {
+  
+          const csvStream = csv.format({headers: true});
+          const writableStream = fs.createWriteStream(outputFilePath);
+  
+          writableStream.on('finish', function() {
+            console.log('DONE!');
+          });
+          let resultData = results[0];
+          csvStream.pipe(writableStream);
+          results.forEach((result, index) => {
+            if(index){
+                const missingCols =  Object.keys(result[0]).filter(
+                    (val)=> !Object.keys(resultData[0]).includes(val));
+                    const missingCols2 =  Object.keys(resultData[0]).filter(
+                        (val)=> !Object.keys(result[0]).includes(val));
+                        console.log(missingCols, missingCols2);
+                const finalData = [];
+                result.forEach((data) => {
+                    let isExist = false;
+                    resultData = resultData.map((value)=>{  
+                        if(value.Resource_ID === data.Resource_ID &&
+                             value.Cost === data.Cost &&
+                             value.Start === data.Start){
+                                missingCols.forEach((val)=>{
+                                    value[val] = data[val];
+                                })
+                                isExist = true;
+                                return value;
+                             }else{
+                                missingCols.forEach((val)=>{
+                                    if(!value.hasOwnProperty(val)){
+                                        value[val] = '';
+                                    }
+                                })
+                                return value;
+                             }
+                    })
+                    if(!isExist){
+                        missingCols2.forEach((val)=>{
+                            result[val] = '';
+                        })
+                        finalData.push(result);
+                    }
+                  });
+                 resultData = resultData.concat(finalData);
+            }
+          });
+            resultData.forEach((data) => {
+              csvStream.write(data);
+            });
+          csvStream.end();
+  
+        });
+  }
+  
+  concatCSVAndOutput(['one.csv', 'two.csv'], 'outputfile.csv')
+      .then(() => {
+        console.log("csv merge completed")
+      });
