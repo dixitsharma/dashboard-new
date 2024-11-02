@@ -13,43 +13,22 @@ const accountMap = {
     red: '565378680304',
     green: '767904627276'
 };
-
-const getCosts = async ({ account, granularity, groupBy }, nextGenToken = null, finalData = []) => {
-    const dollarFormatter = Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
-
-    const today = new Date();
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 14).toISOString();
-    // const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString();
-    // const lastDay = new Date(today.getFullYear(), today.getMonth(), 0).toISOString();
-    const lastDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 13).toISOString();
-    console.log(firstDay,lastDay)
-    
-    const client = new CostExplorerClient({
-        region: 'us-east-1',
-        credentials: fromSSO({ profile: 'CostExplorer' })
-    });
-
-    let filter = undefined;
-    if ( account != null ) {
-        filter = {
-            Dimensions: {
-                Key: 'LINKED_ACCOUNT',
-                Values: [ accountMap[account] ]
-            }
-        };
-    }
-
-    let label = 'products';
-    // let CommandType = GetCostAndUsageWithResourcesCommand;
-    let CommandType = GetCostAndUsageCommand;
-    const groups = [ { Type: 'DIMENSION', Key: 'RESOURCE_ID' } ];
+const getGroups = (groupBy, groups)=>{
+    const label = '';
     switch ( groupBy ) {
+        case 'resource': {
+            label = 'resource_ID';
+            CommandType = GetCostAndUsageWithResourcesCommand;
+            groups.push({ Type: 'DIMENSION', Key: 'RESOURCE_ID' });
+            break;
+        }
         case 'service': {
             label = 'services';
             groups.push({ Type: 'DIMENSION', Key: 'SERVICE' });
             break;
         }
         case 'product': {
+            label = 'products';
             groups.push({ Type: 'TAG', Key: 'Product' });
             break;
         }
@@ -289,20 +268,67 @@ const getCosts = async ({ account, granularity, groupBy }, nextGenToken = null, 
             break;
         }
     }
+    return { groups, label };
+}
+const getCosts = async ({ account, granularity, groupBy }, nextGenToken = null, finalData = []) => {
+    const dollarFormatter = Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
-    const command = new CommandType({
+    const today = new Date();
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 13).toISOString();
+    // const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString();
+    // const lastDay = new Date(today.getFullYear(), today.getMonth(), 0).toISOString();
+    const lastDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 12).toISOString();
+    console.log(firstDay,lastDay)
+    
+    const client = new CostExplorerClient({
+        region: 'us-east-1',
+        credentials: fromSSO({ profile: 'CostExplorer' })
+    });
+
+    let filter = undefined;
+    if ( account != null ) {
+        filter = {
+            Dimensions: {
+                Key: 'LINKED_ACCOUNT',
+                Values: [ accountMap[account] ]
+            }
+        };
+    }
+
+    let label = [];
+    // let CommandType = GetCostAndUsageWithResourcesCommand;
+    let CommandType = GetCostAndUsageCommand;
+    // const groups = [ { Type: 'DIMENSION', Key: 'RESOURCE_ID' } ];
+    const groups = [];
+    groupBy = groupBy?.split(',');
+    if(groupBy){
+        if(groupBy.length === 2){
+            const returnVal = getGroups(groupBy[0], groups);
+            const returnVal2 = getGroups(groupBy[1], groups);
+            label.push(returnVal.label);
+            label.push(returnVal2.label);
+        }else{
+            const returnVal2 = getGroups(groupBy[0], groups);
+            label.push(returnVal2.label);
+        }
+    }
+
+    const commandValue = {
         Granularity: granularity.toUpperCase(),
         Metrics: [ 'UnblendedCost', 'UsageQuantity' ],
         TimePeriod: {
             Start: firstDay.substring(0, firstDay.indexOf('T')),
             End: lastDay.substring(0, lastDay.indexOf('T'))
         },
-        // GroupBy: groups,
+        GroupBy: groups,
         Filter: filter
-    });
-    if(nextGenToken){
-        command["NextPageToken"] = nextGenToken;
     }
+    if(nextGenToken){
+        commandValue["NextPageToken"] = nextGenToken;
+    }
+    // console.log(commandValue);
+    const command = new CommandType(commandValue);
+    // console.log(command)
     const table = [];
 
     const result = await client.send(command);
@@ -331,25 +357,34 @@ const getCosts = async ({ account, granularity, groupBy }, nextGenToken = null, 
     if (value && value.ResultsByTime) {
         value.ResultsByTime.forEach(value => {
             value.Groups.forEach((data) => {
-                finalJson.push({
-                    [label]: ['products','rt_company','rt_tenant','rt_cost','rt_cost_center','rt_customer','rt_environment','rt_name','rt_owner','rt_type','rt_workspace_user','rt_aws_application','rt_custodian_cleanup','rt_aws_batch_compute_environment','rt_aws_batch_job_definition','rt_aws_batch_job_queue','rt_aws_createdBy','rt_aws_ecs_clusterName','rt_aws_ecs_serviceName','rt_aws_eks_cluster_name','cc_aws_charge_types','cc_aws_shared_services','cc_aws_coder_and_coder_plus','cc_development','cc_environment','cc_experience','cc_non_hosting','cc_platform_total_cost','cc_portfolio','cc_product_group','cc_product_tier','cc_production','cc_production_and_development','cc_products_module','cc_safety_gateway','cc_sub_processes'].includes(label)? data.Keys[1].split('$')[1] ?? '' : data.Keys[1],
-                    "resource_ID": data.Keys[0],
+                const csvData = {
+                    [label[0]] :['products','rt_company','rt_tenant','rt_cost','rt_cost_center','rt_customer','rt_environment','rt_name','rt_owner','rt_type','rt_workspace_user','rt_aws_application','rt_custodian_cleanup','rt_aws_batch_compute_environment','rt_aws_batch_job_definition','rt_aws_batch_job_queue','rt_aws_createdBy','rt_aws_ecs_clusterName','rt_aws_ecs_serviceName','rt_aws_eks_cluster_name','cc_aws_charge_types','cc_aws_shared_services','cc_aws_coder_and_coder_plus','cc_development','cc_environment','cc_experience','cc_non_hosting','cc_platform_total_cost','cc_portfolio','cc_product_group','cc_product_tier','cc_production','cc_production_and_development','cc_products_module','cc_safety_gateway','cc_sub_processes'].includes(label)? data.Keys[0].split('$')[1] ?? '' : data.Keys[0],
                     "cost":  data.Metrics.UnblendedCost.Amount,
                     "usage_quantity": data.Metrics.UsageQuantity.Amount,
                     "linked_account": account,
                     "account_id": accountMap[account],
                     "start_date": value.TimePeriod.Start,
                     "end_date": value.TimePeriod.End,
-                })
+                }
+                if(data.Keys.length>1){
+                    csvData[label[1]]= ['products','rt_company','rt_tenant','rt_cost','rt_cost_center','rt_customer','rt_environment','rt_name','rt_owner','rt_type','rt_workspace_user','rt_aws_application','rt_custodian_cleanup','rt_aws_batch_compute_environment','rt_aws_batch_job_definition','rt_aws_batch_job_queue','rt_aws_createdBy','rt_aws_ecs_clusterName','rt_aws_ecs_serviceName','rt_aws_eks_cluster_name','cc_aws_charge_types','cc_aws_shared_services','cc_aws_coder_and_coder_plus','cc_development','cc_environment','cc_experience','cc_non_hosting','cc_platform_total_cost','cc_portfolio','cc_product_group','cc_product_tier','cc_production','cc_production_and_development','cc_products_module','cc_safety_gateway','cc_sub_processes'].includes(label)? data.Keys[1].split('$')[1] ?? '' : data.Keys[1];
+                }
+                finalJson.push(csvData)
+                // console.log(finalJson);
             })
 
         });
     }
 
-    if(finalJson.length){
+    if(result["NextPageToken"] && finalJson.length){
+        // console.log(firstDay,"=======",result.NextPageToken);
         getCosts({ account, granularity, groupBy }, result["NextPageToken"], finalData.concat(finalJson));
         return;
     }
+    else if(finalData.length == 0) {
+        finalData = finalJson;
+    }
+
     const csv = converter.json2csv(finalData);
     
     const path = `daily_output/${ firstDay.substring(0, firstDay.indexOf('T'))}`;
@@ -368,7 +403,7 @@ export default (parent) => {
 
     const groupByOption = new Option('--groupby <value>', 'how to group the results')
         .choices([ 'product', 'resource','service', 'region', 'instance_type', 'usage_type', 'operation', 'az', 'platform', 'purchase_type', 'tenancy', 'database_engine', 'billing_entity','legal_entity','charge_type', 'rt_tenant','rt_aws_batch_compute_environment', 'rt_aws_batch_job_definition','rt_aws_batch_job_queue','rt_aws_createdBy','rt_aws_ecs_clusterName','rt_aws_ecs_serviceName','rt_aws_eks_cluster_name','rt_company','rt_cost','rt_cost_center','rt_customer','rt_environment','rt_name','rt_owner','rt_type','rt_workspace_user','rt_aws_application','rt_custodian_cleanup','aws_charge_types','aws_shared_services','aws_coder_and_coder_plus','cc_development','cc_environment','cc_experience','cc_non_hosting','cc_platform_total_cost','cc_portfolio','cc_product_group','cc_product_tier','cc_production','cc_production_and_development','cc_products_module','cc_safety_gateway','cc_sub_processes'])
-        .default('resource');
+        .default('');
  
     const command = parent.createCommand('cost')
         .description('view cost data')
