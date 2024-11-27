@@ -8,11 +8,19 @@ import {
   GetSecretValueCommand,
 } from "@aws-sdk/client-secrets-manager";
 import converter from 'json-2-csv';
+import AWS from 'aws-sdk';
 
 const secretClient = new SecretsManagerClient({
   region: "us-east-1",
 });
 const secret_name = "cost_data_trial";
+const bucketName = "cur_csv_bucekt";
+const s3 = new AWS.S3(
+    // {
+    // accessKeyId: process.env.YOUR_AWS_ACCESS_KEY_ID,
+    // secretAccessKey: process.env.YOUR_AWS_SECRET_ACCESS_KEY,
+    // }
+);
 export const handler = async (event) => {
   const { account, granularity, groupBy } = event;
   try {
@@ -24,19 +32,20 @@ export const handler = async (event) => {
     );
     const secret = JSON.parse(response.SecretString);
     const writeFileToS3 = (data, fileName, type) => {
-      // const params = {
-      //     Bucket: bucketName, // your bucket name
-      //     Key: fileName, // Date.now() is use for creating unique file name
-      //     ACL: 'public-read',
-      //     Body: data,
-      //     ContentType: type//'text/csv',
-      //   };
-      //   s3.upload(params, (s3Err, data) => {
-      //     if (s3Err) {
-      //       throw s3Err;
-      //     }
-      //     return res.status(200).json({ message: `File uploaded successfully at ${data.Location}` });
-      //   });
+      const params = {
+          Bucket: bucketName, // your bucket name
+          Key: fileName, // Date.now() is use for creating unique file name
+          ACL: 'public-read',
+          Body: data,
+          ContentType: type//'text/csv',
+        };
+        s3.upload(params, (s3Err, data) => {
+          if (s3Err) {
+            throw s3Err;
+          }
+          console.log("successfully uploaded")
+          // return res.status(200).json({ message: `File uploaded successfully at ${data.Location}` });
+        });
     }
     const accountMap = {
       orange: '833923177614',
@@ -386,18 +395,18 @@ export const handler = async (event) => {
         });
       }
 
-      if (result["NextPageToken"] && finalJson.length) {
+      if (response["NextPageToken"] && finalJson.length) {
         // console.log(firstDay,"=======",result.NextPageToken);
-        getCosts({ account, granularity, groupBy }, result["NextPageToken"], finalData.concat(finalJson));
-        return;
+        return getCosts({ account, granularity, groupBy }, response["NextPageToken"], finalData.concat(finalJson));
       }
       else if (finalData.length == 0) {
         finalData = finalJson;
       }
 
       const csv = converter.json2csv(finalData);
+      const path = `daily_output/${firstDay.substring(0, firstDay.indexOf('T'))}`;
       writeFileToS3(csv, `${path}/${account}-${granularity}-by${groupBy}.csv`, 'text/csv');
-      writeFileToS3(JSON.stringify(result, null, 4), `${path}/${account}-${granularity}-by${groupBy}.json`, 'text/json');
+      writeFileToS3(JSON.stringify(finalData, null, 4), `${path}/${account}-${granularity}-by${groupBy}.json`, 'text/json');
 
       // statusCode: 200,
       // body: JSON.stringify('Hello from Lambda!'),
