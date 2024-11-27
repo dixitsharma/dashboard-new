@@ -7,12 +7,14 @@ import {
   SecretsManagerClient,
   GetSecretValueCommand,
 } from "@aws-sdk/client-secrets-manager";
+import converter from 'json-2-csv';
 
 const secretClient = new SecretsManagerClient({
   region: "us-east-1",
 });
 const secret_name = "cost_data_trial";
 export const handler = async (event) => {
+  const { account, granularity, groupBy } = event;
   try {
     const response = await secretClient.send(
       new GetSecretValueCommand({
@@ -359,13 +361,51 @@ export const handler = async (event) => {
       // const params = {TimePeriod:{Start:'2024-11-20', End:'2024-11-27'}, Granularity:'DAILY', Metrics:['UnblendedCost', 'UsageQuantity']}
       const command = new CommandType(commandValue);
       const response = await client.send(command);
+      const finalJson = [];
+      const value = response;
+
+      if (value && value.ResultsByTime) {
+        value.ResultsByTime.forEach(value => {
+          value.Groups.forEach((data) => {
+            const csvData = {
+              [label[0]]: ['products', 'rt_company', 'rt_tenant', 'rt_cost', 'rt_cost_center', 'rt_customer', 'rt_environment', 'rt_name', 'rt_owner', 'rt_type', 'rt_workspace_user', 'rt_aws_application', 'rt_custodian_cleanup', 'rt_aws_batch_compute_environment', 'rt_aws_batch_job_definition', 'rt_aws_batch_job_queue', 'rt_aws_createdBy', 'rt_aws_ecs_clusterName', 'rt_aws_ecs_serviceName', 'rt_aws_eks_cluster_name', 'cc_aws_charge_types', 'cc_aws_shared_services', 'cc_aws_coder_and_coder_plus', 'cc_development', 'cc_environment', 'cc_experience', 'cc_non_hosting', 'cc_platform_total_cost', 'cc_portfolio', 'cc_product_group', 'cc_product_tier', 'cc_production', 'cc_production_and_development', 'cc_products_module', 'cc_safety_gateway', 'cc_sub_processes'].includes(label[0]) ? data.Keys[0].split('$')[1] ?? '' : data.Keys[0],
+              "cost": data.Metrics.UnblendedCost.Amount,
+              "usage_quantity": data.Metrics.UsageQuantity.Amount,
+              "linked_account": account,
+              "account_id": accountMap[account],
+              "start_date": value.TimePeriod.Start,
+              "end_date": value.TimePeriod.End,
+            }
+            if (data.Keys.length > 1) {
+              csvData[label[1]] = ['products', 'rt_company', 'rt_tenant', 'rt_cost', 'rt_cost_center', 'rt_customer', 'rt_environment', 'rt_name', 'rt_owner', 'rt_type', 'rt_workspace_user', 'rt_aws_application', 'rt_custodian_cleanup', 'rt_aws_batch_compute_environment', 'rt_aws_batch_job_definition', 'rt_aws_batch_job_queue', 'rt_aws_createdBy', 'rt_aws_ecs_clusterName', 'rt_aws_ecs_serviceName', 'rt_aws_eks_cluster_name', 'cc_aws_charge_types', 'cc_aws_shared_services', 'cc_aws_coder_and_coder_plus', 'cc_development', 'cc_environment', 'cc_experience', 'cc_non_hosting', 'cc_platform_total_cost', 'cc_portfolio', 'cc_product_group', 'cc_product_tier', 'cc_production', 'cc_production_and_development', 'cc_products_module', 'cc_safety_gateway', 'cc_sub_processes'].includes(label[1]) ? data.Keys[1].split('$')[1] ?? '' : data.Keys[1];
+            }
+            finalJson.push(csvData)
+            // console.log(finalJson);
+          })
+
+        });
+      }
+
+      if (result["NextPageToken"] && finalJson.length) {
+        // console.log(firstDay,"=======",result.NextPageToken);
+        getCosts({ account, granularity, groupBy }, result["NextPageToken"], finalData.concat(finalJson));
+        return;
+      }
+      else if (finalData.length == 0) {
+        finalData = finalJson;
+      }
+
+      const csv = converter.json2csv(finalData);
+      writeFileToS3(csv, `${path}/${account}-${granularity}-by${groupBy}.csv`, 'text/csv');
+      writeFileToS3(JSON.stringify(result, null, 4), `${path}/${account}-${granularity}-by${groupBy}.json`, 'text/json');
+
       // statusCode: 200,
       // body: JSON.stringify('Hello from Lambda!'),
       return JSON.stringify(response);
       // console.log(response)
       // return getCosts({account: 'green',granularity: 'daily',groupBy: 'resource'});
     }
-    return getCosts({ account: 'green', granularity: 'daily', groupBy: 'resource' });
+    return getCosts({ account, granularity, groupBy });
   }
   catch (error) {
     console.error("Error retrieving secret:", error);
